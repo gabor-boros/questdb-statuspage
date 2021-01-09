@@ -1,0 +1,11 @@
+[run]
+source = app
+branch = True
+omit = *tests*
+       *__init__*
+
+[report]
+sort = cover
+fail_under = 75
+exclude_lines = pragma: no cover
+                if __name__ == .__main__.:
