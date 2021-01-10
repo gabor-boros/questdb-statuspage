@@ -2,7 +2,7 @@
 
 _Photo by Geoffroy Hauwen from Unsplash.com_
 
-# Status Page with QuestDB
+# Building a status page for your application with QuestDB and Python
 
 As a software developer, our role is to design highly available services which serve millions of request every minute, especially in case of a software or platform as a service company. Even if we design the most reliable systems, sometimes we cannot avoid an incident and in that case, we must provide as much information to our users as possible.
 
