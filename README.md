@@ -2,10 +2,10 @@
 
 _Photo by Geoffroy Hauwen from Unsplash.com_
 
-# Monitoring the uptime of a Python application with QuestDB
+# Monitoring the uptime of an application with Python, Nuxt.js and QuestDB
 
 Highly available services that serve millions of requests rely on the visibility of the system status for customers and internal teams.
-This tutorial shows how a lightweight and performant time-series database coupled with queuing status checks are key ingredients for robust application monitoring.
+This tutorial shows how a lightweight and performant time-series database coupled with queued status checks and a simple UI are key ingredients for robust application monitoring.
 
 ## Why build a status page for an application?
 
