@@ -177,16 +177,6 @@ The query executes, and after refreshing the table list on the left, you can see
 
 ![Interactive Console](./post/img/interactive-console.png)
 
-<!-- Note this is also possible via CURL, might be worth mentioning
-
-curl -G \
-  --data-urlencode "query=CREATE TABLE \
-  signals(url STRING, http_status INT, received TIMESTAMP, available BOOLEAN) \
-  timestamp(received);" \
-  http://localhost:9000/exec
-
- -->
-
 ### Connect QuestDB and FastAPI
 
 As we have the table in the database, it is time to connect to QuestDB and query some data to return through the API. To connect, we will use the Postgres interface of QuestDB and SQLAlchemy to connect to it.
