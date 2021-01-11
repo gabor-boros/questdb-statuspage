@@ -175,7 +175,7 @@ CREATE TABLE
 
 The query executes, and after refreshing the table list on the left, you can see the table we created.
 
-![Interactive Console](./post/img/interactive-console.png))
+![Interactive Console](./post/img/interactive-console.png)
 
 <!-- Note this is also possible via CURL, might be worth mentioning
 
