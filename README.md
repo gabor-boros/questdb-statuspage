@@ -2,25 +2,32 @@
 
 _Photo by Geoffroy Hauwen from Unsplash.com_
 
-# Building a status page for your application with QuestDB and Python
+# Monitoring the uptime of an application with Python, Nuxt.js and QuestDB
 
-As a software developer, our role is to design highly available services which serve millions of request every minute, especially in case of a software or platform as a service company. Even if we design the most reliable systems, sometimes we cannot avoid an incident and in that case, we must provide as much information to our users as possible.
+Highly available services that serve millions of requests rely on the visibility of the system status for customers and internal teams.
+This tutorial shows how a lightweight and performant time-series database coupled with queued status checks and a simple UI are key ingredients for robust application monitoring.
 
-The most convenient way to give visibility to our clients about our services' status is to provide a status page for them. Although the page's responsibility is to provide information, it can reduce the load on the support team and eliminate duplicate support tickets. Status pages are part of the incident management and usually, other teams enjoy its benefits like client and service owners when they need to refer to SLAs.
+## Why build a status page for an application?
 
-In this tutorial, I'll show you how to build a simple yet powerful status page, which can be easily extended to be more robust.
+Even if we design the most reliable systems, incidents will occur for hard-to-predict reasons.
+It's critical to provide as much information as possible to users, customers, and service teams.
+The most convenient way to display this is through a status page.
+
+Although the page's responsibility is to provide information, it can reduce the support team's load and eliminate duplicate support tickets.
+Status pages are a crucial part of incident management, and usually, other teams enjoy benefits like client and service owners when they need to refer to SLAs.
+In this tutorial, I'll show you how to build a simple yet powerful status page that scores well on performance and design.
 
 ## What we will build
 
 ### Overview
 
-As mentioned above we will build a simple status page which is built up from two parts: the backend which monitors our service and a front end which shows the status of our services on an hourly scale.
+As mentioned above, we will build a simple status page made of two parts: the backend monitors our service, and a frontend shows our services' status on an hourly scale.
 
 ![end-result](./post/img/end-result.png)
 
-For this tutorial, you will need some experience in Python, JavaScript, and basic SQL knowledge. To build our service, we will use FastAPI an ultra-fast Python web framework, Celery for scheduling monitoring tasks, QuestDB, the fastest open-source time series database, to store monitoring results, and NuxtJs to display them.
+You will need some experience in Python, JavaScript, and basic SQL knowledge. To build our service, we will use FastAPI, an ultra-fast Python web framework, Celery for scheduling monitoring tasks, QuestDB, the fastest open-source time-series database, to store monitoring results, and NuxtJs to display them.
 
-We will have a busy hour now, so let's jump right into it.
+There's a lot to learn, so let's jump right in!
 
 ### Prerequisites
 
@@ -35,7 +42,9 @@ You will need to have the following installed on your machine:
 
 ### Create a new project
 
-First things first, we create a directory, called `status-page`, this will be our project root, from now on, we will work within this directory. Also, we need to create another directory, called `app` which will contain the backend code. After following these steps, you should have a project structure like this.
+First things first, we create a directory, called `status-page`, this is our project root. 
+We also need to create another directory called `app` which will contain the backend code. 
+After following these steps, you should have a project structure like this.
 
 ```
 status-page (project root)
@@ -44,9 +53,9 @@ status-page (project root)
 
 ### Installing QuestDB & Redis
 
-Great, we did the first step! Now, we will install QuestDB and Redis. The latter one will be used as a message broker between the backend application and the workers which will do the scheduled monitoring.
+Now, we will install QuestDB and Redis. QuestDB is used to store the HTTP status and the service state of our application over time, and Redis is used as a message broker between the backend application and the workers who will do the scheduled monitoring.
 
-To install these services, we will use Docker and Docker Compose. We are going to simply create a `docker-compose.yml` file within the project root with the following content:
+To install these services, we will use Docker and Docker Compose. We are going to create a `docker-compose.yml` file within the project root with the following content:
 
 ```yaml
 version: '3'
@@ -70,11 +79,11 @@ services:
       - '8812:8812'
 ```
 
-Voila! When we run `docker-compose up`, QuestDB and Redis start, and we can access QuestDB's interactive console on http://127.0.0.1:9000.
+Voila! When we run `docker-compose up`, QuestDB and Redis start, and we can access QuestDB's interactive console on [http://127.0.0.1:9000](http://127.0.0.1:9000).
 
 ### Install backend dependencies
 
-Now, we have the project structure and we can run the belonging services, so we need to set up our backend service to collect data about the website or service we would like to monitor. During this tutorial we will use poetry to manage Python dependencies, so let's start by installing that.
+Now, we have the project structure, and we can run the required services, so we need to set up our backend service to collect data about the website or service we would like to monitor. We will use poetry to manage Python dependencies during this tutorial, so let's start by installing that.
 
 ```shell
 $ pip install poetry
@@ -98,33 +107,19 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 ```
 
-As we did the necessary setup for the project itself, we can install project dependencies by executing `poetry add python fastapi pydantic uvicorn requests psycopg2-binary "databases[postgresql]" "celery[redis]"`. As you may assume by checking the requirements, we will use QuestDB's Postgres interface to connect.
+Install the project dependencies by executing the following:
 
-When `poetry` finishes its job it will add the dependencies to `pyproject.toml` and we can start to implement the backend service.
-
-After the installation completes, your dependencies will look similar to this:
-
-```toml
-# ...
-
-[tool.poetry.dependencies]
-python = "^3.8"
-celery = {extras = ["redis"], version = "^5.0.5"}
-databases = {version = "^0.4.1", extras = ["postgresql"]}
-fastapi = "^0.62.0"
-psycopg2 = "^2.8.6"
-pydantic = "^1.7.3"
-requests = "^2.25.1"
-uvicorn = "^0.13.0"
-
-# ...
+```shell
+poetry add python fastapi pydantic uvicorn requests \
+ psycopg2-binary "databases[postgresql]" "celery[redis]"
 ```
+As you may assume by checking the requirements, we will use QuestDB's Postgres interface to connect. 
+When `poetry` finishes its job, it will add the dependencies to `pyproject.toml` and we can now start to implement the backend service.
 
 ## Create a simple API
 
 The time has come, let's create the backend service, but step-by-step.
-
-Within the `app` directory, create an `__init__.py` and `main.py`. The first one will be responsible for making the `app` directory to a package, while the latter one will define the APIs our service exposes. Open `main.py` for edit and add the following:
+Within the `app` directory, create an `__init__.py` and `main.py`. The first one is responsible for making the `app` directory to a package, while the latter will define the APIs our service exposes. Open `main.py` for edit and add the following:
 
 ```python
 # main.py
@@ -143,9 +138,7 @@ Congratulations! You just created the backend service. You can go and try it out
 ```shell
 $ poetry run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [61948] using statreload
-INFO:     Started server process [61972]
-INFO:     Waiting for application startup.
+...
 INFO:     Application startup complete.
 ```
 
@@ -161,17 +154,18 @@ async def get_signals():
   return {}
 ```
 
-What did we do above? We the API endpoint which will serve the monitoring data we collect. If you open http://127.0.0.1:8000/redoc, you can check the generated documentation for the endpoint, or you can check it working at http://127.0.0.1:8000/signals, though it won't return any data.
+We have now created an API endpoint that will serve the system status data of the monitored URL. 
+If you open [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc), you can see the generated documentation for the endpoint, or you can check it working at [http://127.0.0.1:8000/signals](http://127.0.0.1:8000/signals), though it won't return any data yet.
 
 It is time to have fun, we are going to integrate QuestDB with our shiny new backend service.
 
 ## Integrate QuestDB with FastAPI
 
-Integrating QuestDB with FastAPI is easier than you think. Thanks to QuestDB's [Postgres compatibility](https://questdb.io/docs/develop/connect), you can use the standard or popular third-party libraries of any programming language which implements Postgres capabilities.
+Integrating QuestDB with FastAPI is easier than you think. Thanks to QuestDB's [Postgres compatibility](https://questdb.io/docs/develop/connect), you can use any standard or popular third-party libraries of any programming language which implements Postgres wire protocol.
 
 ### Set up the table
 
-The very first step is to create the table in QuestDB. As said before, our approach is simple, so the table will be simple too. Assuming that QuestDB is running, open the interactive console running at http://127.0.0.1:9000 and create a new table by running
+The very first step is to create the table in QuestDB. As said before, our approach is simple, so that the table is simple, too. QuestDB is running from our docker compose script so, we open the interactive console at [http://127.0.0.1:9000](http://127.0.0.1:9000) and create a new table by running the following query:
 
 ```sql
 CREATE TABLE
@@ -181,13 +175,13 @@ CREATE TABLE
 
 The query executes, and after refreshing the table list on the left, you can see the table we created.
 
-![Interactive Console](./post/img/interactive-console.png))
+![Interactive Console](./post/img/interactive-console.png)
 
 ### Connect QuestDB and FastAPI
 
-As we have the table in the database, it is time to connect to QuestDB and query some data to return through the API. In order to connect, we will use the Postgres interface of QuestDB and SQLAlchemy to connect to it.
+As we have the table in the database, it is time to connect to QuestDB and query some data to return through the API. To connect, we will use the Postgres interface of QuestDB and SQLAlchemy to connect to it.
 
-To be able to reuse the engine, later on, we create a new file in the `app` package which is responsible for defining how to connect and name it `db.py`:
+To be able to reuse the engine later on, create a new file in the `app` package which is responsible for defining how to connect and name it `db.py`:
 
 ```python
 # db.py
@@ -218,9 +212,14 @@ class Signal(BaseModel):
 
 ```
 
-Let's stop here for a moment and talk through what we did in the past couple of minutes. We set up the API which will serve the requests coming from the front end, created a table in QuestDB, set up the required connection, though we did not connect yet, and implemented the schema which will be used to serialize the results returned by the database.
+Let's stop here for a moment and talk through what we did in the last steps:
 
-The next step is to initiate a connection and return the results from the database. We are going to extend the function which serve the `/signals` endpoint. First, import the `engine` and`Signal` schema.
+* set up the API which will serve the requests coming from the frontend
+* created a table in QuestDB for our status records and provided connection credentials for Postgres wire 
+* implemented the schema which is used to serialize the results returned by the database
+
+The next step is to initiate a connection and return the results from the database.
+First, import the `engine` and `Signal` schema and then extend the function which serves the `/signals` endpoint:
 
 ```python
 # main.py
@@ -228,14 +227,7 @@ The next step is to initiate a connection and return the results from the databa
 # Other imports ...
 from app.db import engine
 from app.models import Signal
-```
 
-Then, create a response schema for the API, which will be handy in the future when we implement the front end.
-
-```python
-# main.py
-
-# Other imports ...
 from typing import List
 from pydantic import BaseModel
 
@@ -244,19 +236,7 @@ class SignalResponse(BaseModel):
     records: List[Signal]
 ```
 
-Now, we have everything to finish the implementation of the `/signals` endpoint. Let's replace the 
-
-```python
-# main.py
-
-# ...
-
-@app.get(path="/signals", tags=["Monitoring"])
-async def get_signals():
-  return {}
-```
-
-by the final implementation of the endpoint
+After adding the `defaultdict` import, the implementation of the `/signals` endpoint should look like this:
 
 ```python
 # main.py
@@ -282,18 +262,24 @@ async def get_signals(limit: int = 60):
             signal = Signal(**dict(result)) # parse the results results returned by QuestDB
             signals[signal.url].append(signal) # add every result per URL
 
-    # Return the response which will be validated against the `response_model` schema
+    # Return the response which is validated against the `response_model` schema
     return [
         SignalResponse(url=url, records=list(reversed(records)))
         for url, records in signals.items()
     ]
 ```
 
-Wow! We did a lot in this section, but before going on, make sure that everything in the right place. Starting from top to bottom, we added `defaultdict` import which will be explained later. After that we just extended the function decorator to use `response_model=List[SignalResponse]`, the response model we defined above. Also, we changed the function signature to include a `limit` parameter and set its default value to `60`. For now, we will use `limit` to ensure only the latest 60 records are returned. Since we will monitor the desired website (`https://questdb.io`) every minute, this implementation means that the last 60-minute results will be returned.
+Let's recap on our code above, starting from the top:
 
-Then, we select the records from the database and prepare a dictionary for the parsed `Signal`s. You may ask why to group the returned records per URL. Although we will monitor only one URL for the sake of simplicity, I challenge you to change the implementation later and explore QuestDB to handle the monitoring of multiple URLs.
+* we added `defaultdict` import (we'll explain that later)
+* extended the function decorator to use `response_model=List[SignalResponse]`, the response model we defined already 
+* changed the function signature to include a `limit` parameter and set its default value to `60` since we will monitor HTTP status every minute 
+* select the records from the database and prepare a dictionary for the parsed `Signal`s.
 
-In the following lines, we are connecting to the database, executing the query, and populates the dictionary, which we will use in the last 4 lines to construct the `SignalResponse`. The result should be similar to this:
+You may ask why to group the returned records per URL. Although we will monitor only one URL for the sake of simplicity, I challenge you to change the implementation later and explore QuestDB to handle the monitoring of multiple URLs.
+
+In the following lines, we are connecting to the database, executing the query, and populates the dictionary, which we will use in the last four lines to construct the `SignalResponse`. 
+Our version of `main.py` at this point looks like the following:
 
 ```python
 # main.py
@@ -336,7 +322,7 @@ async def get_signals(limit: int = 60):
             signal = Signal(**dict(result)) # parse the results results returned by QuestDB
             signals[signal.url].append(signal) # add every result per URL
 
-    # Return the response which will be validated against the `response_model` schema
+    # Return the response which is validated against the `response_model` schema
     return [
         SignalResponse(url=url, records=list(reversed(records)))
         for url, records in signals.items()
@@ -346,11 +332,15 @@ async def get_signals(limit: int = 60):
 
 ## Schedule monitoring tasks
 
-For scheduling the monitoring task, we will use Celery Beat which is the built-in periodic task scheduler implementation of Celery.
+For scheduling the monitoring task, we will use Celery Beat, the built-in periodic task scheduler implementation of Celery.
 
 ### Scheduling with Celery
 
-Before we schedule any task, we need to configure Celery. In the `app` package, create a new `celery.py` which will contain the Celery and beat schedule configuration.
+Before we schedule any task, we need to configure Celery. In the `app` package, create a new `celery.py` which will contain the Celery and beat schedule configuration. Import `Celery` for creating tasks, and `crontab` for constructing Unix-like crontabs for our tasks.
+The task is the dotted path representation of the function which is executed by Celery (`app.tasks.monitor`) and sent to queues handled by Redis.
+
+The only thing left is to configure the beat schedule, which is a simple dictionary. 
+We give a name for the schedule, define the dotted path pointing to the task (function), and specify the schedule itself:
 
 ```python
 # celery.py
@@ -378,52 +368,13 @@ celery_app.conf.beat_schedule = {
 }
 ```
 
-Let's talk through what we wrote above. In the first two lines, we import `Celery` and a `crontab`. The first one will be used for creating a Celery application while the latter one is responsible for construct a Unix-like crontab for task scheduling.
-
-From the implementation above, you may realize that we define a "task". The task is the dotted path representation of the function which will be executed by Celery. The tasks are sent to queues, which is defined in the second part of the code:
-
-```python
-# celery.py
-
-# ...
-
-MONITORING_TASK = "app.tasks.monitor"
-
-celery_app = Celery("tasks", broker="redis://redis:6379/0")
-
-# Set a queue for task routes
-celery_app.conf.task_routes = {
-  MONITORING_TASK: "main-queue"
-}
-
-# ...
-```
-
-The only thing left is to configure the beat schedule, which is a simple dictionary. We give a name for the schedule, define the dotted path pointing to the task (function), and specify the schedule itself. This is the part where the above-mentioned `crontab` is used:
-
-```python
-# celery.py
-
-# ...
-
-# Schedule the monitoring task
-celery_app.conf.beat_schedule = {
-    "monitor": { # Name of the schedule
-        "task": MONITORING_TASK, # Register the monitoring task
-        "schedule": crontab(
-            minute=f"*/1" # Run the task every minute
-        ),
-    }
-}
-```
-
 ### Create a monitoring task
 
-And the last part: creating the monitoring task. In the previous section we talked about the "monitoring task" multiple times, but we didn't see the concrete implementation of that.
+And the last part: creating the monitoring task. In the previous section, we talked about the "monitoring task" multiple times, but we didn't see the concrete implementation.
 
-In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results in QuestDB. The monitoring task will be a simple `HTTP HEAD` request and saving the result to the database. Let's see the implementation in pieces of the `tasks.py` we referenced in celery as the dotted path before.
+In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results as records in QuestDB. The monitoring task is a simple `HTTP HEAD` request and saving the response to the database. We see the implementation in pieces of the `tasks.py` referenced in celery as the dotted path before.
 
-First, we start with imports
+First, we start with imports:
 
 ```python
 # tasks.py
@@ -439,7 +390,7 @@ from app.models import Signal
 # ...
 ```
 
-We import `celery_app` which represents the Celery application, `engine` to save the results in the database, and finally `Signal` to construct the record we are going to save. As the necessary imports are in place, we can define the `monitor` task.
+We import `celery_app` which represents the Celery application, an `engine` to save the results in the database, and finally `Signal` to construct the record we will save. As the necessary imports are in place, we can define the `monitor` task.
 
 ```python
 # tasks.py
@@ -503,11 +454,11 @@ def monitor():
         conn.execute(query)
 ```
 
-Congratulations! You just arrived at the last part of the backend service implementation. We did a lot of things and built a service that can periodically check the website's status, saves it in the database, and exposes the results through an API.
+Congratulations! You just arrived at the last part of the backend service implementation. We did many things and built a service that can periodically check the website's status, save it in the database, and expose the results through an API.
 
-The very last thing we need to address is to allow connections initiated by the front end later on. As it will run on http://127.0.0.1:3000 and we don't use domain names, the port will be different hence all request will be rejected with errors related to [Cross-Origin Resource Sharing](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
+The very last thing we need to address is to allow connections initiated by the frontend later on. As it will run on localhost:3000 and we don't use domain names, the port is different hence all requests will be rejected with errors related to [Cross-Origin Resource Sharing](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
 
-To address this issue, add the following middleware to the application:
+To address this issue, add the following middleware to the application which will allow us to connect at [http://localhost:3000](http://localhost:3000):
 
 ```python
 # main.py
@@ -528,13 +479,11 @@ app.add_middleware(
 # ...
 ```
 
-The middleware above will let us connect from http://localhost:3000.
+## Implement the frontend
 
-## Implement the front end
+### Setting up frontend
 
-### Setting up front end
-
-To build the front end, we will use Nuxt.js. We will use `yarn` to set up the starter project by running `yarn` and selecting the answers detailed below.
+To build the frontend, we will use Nuxt.js. We will use `yarn` to set up the starter project by running `yarn` and selecting the answers detailed below.
 
 ```shell
 $ yarn create nuxt-app frontend
@@ -676,9 +625,10 @@ The last part is to define a periodic call to the backend when the component is 
 <!-- scripts ... -->
 ```
 
-We reached the end of the tutorial. We have both the backend and the front end. It is time to try everything out.
+## Run the project
 
-To start the backend we will need to start the API server and the worker process. To do that, run the following commands in different shells from the project root.
+We reached the end of the tutorial. We have both the backend and the frontend. It is time to try everything out.
+Run the following commands in different shells from the project root:
 
 ```shell
 # Shell 1 - Start the application
@@ -693,10 +643,17 @@ $ cd frontend
 $ yarn dev
 ```
 
-Now, open http://localhost:3000 and wait some minutes. After some minutes, you will see that the backend is reporting the status of the monitored URL.
+Navigate to [http://localhost:3000](http://localhost:3000) to see the backend reporting the status of the monitored URL.
+The first task to check the system status is executed when the scheduler and worker starts and
+the status of the website over time can be seen after a few minutes on the page or when you check back at a later stage:
 
 ![end-result-2](./post/img/end-result-2.png)
+
+## Summary
+
+We've successfully built a pretty status page that can be publicly-visible to users or used for internal teams to monitor an application's uptime. We've learned how to queue and schedule tasks and store the responses in a time-series database and make use of low-latency queries. Engineers can modify this demo to monitor a website's HTTP response code or multiple endpoints or services for a robust overview of an entire system's status.
 
 Thank you for your attention!
 
 _The containerized source code is available at https://github.com/gabor-boros/questdb-statuspage._
+
