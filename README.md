@@ -154,7 +154,7 @@ async def get_signals():
   return {}
 ```
 
-We have now created an API endpoint that will serve the system status data. 
+We have now created an API endpoint that will serve the system status data of the monitored URL. 
 If you open [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc), you can see the generated documentation for the endpoint, or you can check it working at [http://127.0.0.1:8000/signals](http://127.0.0.1:8000/signals), though it won't return any data yet.
 
 It is time to have fun, we are going to integrate QuestDB with our shiny new backend service.
@@ -653,7 +653,9 @@ $ cd frontend
 $ yarn dev
 ```
 
-Navigate to [http://localhost:3000](http://localhost:3000) and after some initialization, you will see that the backend is reporting the status of the monitored URL:
+Navigate to [http://localhost:3000](http://localhost:3000) to see the backend reporting the status of the monitored URL.
+The first task to check the system status is executed when the scheduler and worker starts and
+the status of the website over time can be seen after a few minutes on the page or when you check back at a later stage:
 
 ![end-result-2](./post/img/end-result-2.png)
 
