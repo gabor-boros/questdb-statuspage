@@ -3,7 +3,7 @@ from datetime import datetime
 import requests
 
 from app.celery import celery_app
-from app.db import engine
+from app.db import pool
 from app.models import Signal
 from app.settings import settings
 
@@ -26,7 +26,7 @@ def monitor():
             VALUES(systimestamp(), '{settings.website_url}', -1, False);
             """
 
-        with engine.connect() as conn:
+        with pool.connection() as conn:
             conn.execute(query)
 
         raise exc
@@ -43,5 +43,5 @@ def monitor():
     VALUES(systimestamp(), '{signal.url}', {signal.http_status}, {signal.available});
     """
 
-    with engine.connect() as conn:
+    with pool.connection() as conn:
         conn.execute(query)
