@@ -43,12 +43,8 @@ export default {
 
   tailwindcss: {
     config: {
-      purge: {
-        content: ['./src/**/*.html'],
-        options: {
-          safelist: ['bg-green-700', 'bg-yellow-700']
-        },
-      },    
+      content: ['./src/**/*.html'],
+      safelist: ['bg-green-700', 'bg-yellow-700']
     }
   },
 

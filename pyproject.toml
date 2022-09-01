@@ -7,21 +7,20 @@ license = "MIT"
 
 [tool.poetry.dependencies]
 python = "^3.8"
-celery = {extras = ["redis"], version = "^5.0.5"}
-databases = {version = "^0.4.1", extras = ["postgresql"]}
-fastapi = "^0.62.0"
-psycopg2 = "^2.8.6"
-pydantic = "^1.7.3"
-requests = "^2.25.1"
-uvicorn = "^0.13.0"
+celery = {extras = ["redis"], version = "^5.2.7"}
+fastapi = "^0.81.0"
+psycopg = {extras = ["pool"], version = "^3.0.16"}
+pydantic = "^1.9.2"
+requests = "^2.28.1"
+uvicorn = "^0.18.3"
 
 [tool.poetry.dev-dependencies]
-black = "^20.8b1"
-coverage = "^5.3"
-isort = "^5.6.4"
-mypy = "^0.790"
-pylint = "^2.6.0"
-pytest = "^6.1.2"
+black = "^22.6.0"
+coverage = "^6.4.4"
+isort = "^5.10.1"
+mypy = "^0.971"
+pylint = "^2.15.0"
+pytest = "^7.1.2"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
