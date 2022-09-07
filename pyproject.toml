@@ -9,7 +9,7 @@ license = "MIT"
 python = "^3.8"
 celery = {extras = ["redis"], version = "^5.2.7"}
 fastapi = "^0.81.0"
-psycopg = {extras = ["pool"], version = "^3.0.16"}
+psycopg = {extras = ["c", "pool"], version = "^3.1.1"}
 pydantic = "^1.9.2"
 requests = "^2.28.1"
 uvicorn = "^0.18.3"

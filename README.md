@@ -107,11 +107,13 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 ```
 
-Install the project dependencies by executing the following:
+In order to let the application communicate with QuestDB utilizing the `psycopg` client library, we need to install `libpq-dev` package on our system. To install it, use your package manager; on Windows, you may need to install PostgreSQL on your system.
+
+Then, install the project dependencies by executing the following:
 
 ```shell
 poetry add python fastapi pydantic uvicorn requests \
- "psycopg[pool]" "celery[redis]"
+ "psycopg[c,pool]" "celery[redis]"
 ```
 As you may assume by checking the requirements, we will use QuestDB's Postgres interface to connect.
 When `poetry` finishes its job, it will add the dependencies to `pyproject.toml` and we can now start to implement the backend service.
