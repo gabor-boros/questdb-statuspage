@@ -10,7 +10,7 @@
           <p class="flex-1 text-right font-thin">{{ uptime(signal.records) }}% uptime</p>
         </div>
         <div class="grid grid-flow-col auto-cols-max gap-x-1">
-          <div 
+          <div
             v-for="(signal, r) in signal.records"
             :key="r"
             :class="`w-1 bg-${signal.available ? 'green' : 'yellow'}-700`"
@@ -33,7 +33,7 @@ async function fetchSignals($axios, limit) {
   return signals
 }
 
-export default { 
+export default {
   data() {
     return {
       signals: []

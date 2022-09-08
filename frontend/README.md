@@ -4,7 +4,7 @@
 
 ```bash
 # install dependencies
-$ yarn install
+$ yarn install --ignore-engines
 
 # serve with hot reload at localhost:3000
 $ yarn dev

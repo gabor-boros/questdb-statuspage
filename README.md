@@ -29,12 +29,14 @@ You will need some experience in Python, JavaScript, and basic SQL knowledge. To
 
 There's a lot to learn, so let's jump right in!
 
+_The containerized source code is available at https://github.com/gabor-boros/questdb-statuspage._
+
 ### Prerequisites
 
 You will need to have the following installed on your machine:
 
 * Python 3.8
-* NodeJS 14+
+* NodeJS 14.x
 * Docker
 * Docker Compose
 
@@ -42,8 +44,8 @@ You will need to have the following installed on your machine:
 
 ### Create a new project
 
-First things first, we create a directory, called `status-page`, this is our project root. 
-We also need to create another directory called `app` which will contain the backend code. 
+First things first, we create a directory, called `status-page`, this is our project root.
+We also need to create another directory called `app` which will contain the backend code.
 After following these steps, you should have a project structure like this.
 
 ```
@@ -100,20 +102,22 @@ authors = ["Your name <your.email@example.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = "3.8"
+python = "^3.8"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 ```
 
-Install the project dependencies by executing the following:
+In order to let the application communicate with QuestDB utilizing the `psycopg` client library, we need to install `libpq-dev` package on our system. To install it, use your package manager; on Windows, you may need to install PostgreSQL on your system.
+
+Then, install the project dependencies by executing the following:
 
 ```shell
 poetry add python fastapi pydantic uvicorn requests \
- psycopg2-binary "databases[postgresql]" "celery[redis]"
+ "psycopg[c,pool]" "celery[redis]"
 ```
-As you may assume by checking the requirements, we will use QuestDB's Postgres interface to connect. 
+As you may assume by checking the requirements, we will use QuestDB's Postgres interface to connect.
 When `poetry` finishes its job, it will add the dependencies to `pyproject.toml` and we can now start to implement the backend service.
 
 ## Create a simple API
@@ -154,7 +158,7 @@ async def get_signals():
   return {}
 ```
 
-We have now created an API endpoint that will serve the system status data of the monitored URL. 
+We have now created an API endpoint that will serve the system status data of the monitored URL.
 If you open [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc), you can see the generated documentation for the endpoint, or you can check it working at [http://127.0.0.1:8000/signals](http://127.0.0.1:8000/signals), though it won't return any data yet.
 
 It is time to have fun, we are going to integrate QuestDB with our shiny new backend service.
@@ -179,53 +183,58 @@ The query executes, and after refreshing the table list on the left, you can see
 
 ### Connect QuestDB and FastAPI
 
-As we have the table in the database, it is time to connect to QuestDB and query some data to return through the API. To connect, we will use the Postgres interface of QuestDB and SQLAlchemy to connect to it.
+As we have the table in the database, it is time to connect to QuestDB and query some data to return through the API. To connect, we will use the Postgres interface of QuestDB and Postgres using connection pooling to connect to it.
 
-To be able to reuse the engine later on, create a new file in the `app` package which is responsible for defining how to connect and name it `db.py`:
+To be able to reuse the pool later on, create a new file in the `app` package which is responsible for defining how to connect and name it `db.py`:
 
 ```python
 # db.py
 
-from sqlalchemy import create_engine
+from psycopg_pool import ConnectionPool
 
-engine = create_engine(
+pool = ConnectionPool(
     "postgresql://admin:quest@127.0.0.1:8812/qdb", # Use a the default credentials
-    pool_size=5, # Set pool size greater than 1 to not block async requests
-    pool_pre_ping=True # Set pre-ping to ensure a connection is opened when sending a query
+    min_size=1, # Set pool size minimum to 1
+    max_size=5, # Set pool size greater than 1 to not block async requests
 )
+
 ```
 
-To set up a schema that represents the table in the database, create a `models.py` containing the schema definition:
+To set up a schema that represents the table in the database, create a `models.py` in the `app` package, containing the schema definition:
 
 ```python
 # models.py
 
 from datetime import datetime
-from pydantic import BaseModel, Schema
+from pydantic import BaseModel, Field
 
 
 class Signal(BaseModel):
-    url: str = Schema(..., description="The monitored URL")
-    http_status: int = Schema(..., description="HTTP status code returned by upstream")
-    available: bool = Schema(..., description="Represents the service availability")
-    received: datetime = Schema(..., description="Timestamp when the signal received")
+    """
+    Signal model stands for the results of monitoring requests
+    """
+
+    url: str = Field(..., description="The monitored URL")
+    http_status: int = Field(..., description="HTTP status code returned by upstream")
+    available: bool = Field(..., description="Represents the service availability")
+    received: datetime = Field(..., description="Timestamp when the signal received")
 
 ```
 
 Let's stop here for a moment and talk through what we did in the last steps:
 
 * set up the API which will serve the requests coming from the frontend
-* created a table in QuestDB for our status records and provided connection credentials for Postgres wire 
+* created a table in QuestDB for our status records and provided connection credentials for Postgres wire
 * implemented the schema which is used to serialize the results returned by the database
 
 The next step is to initiate a connection and return the results from the database.
-First, import the `engine` and `Signal` schema and then extend the function which serves the `/signals` endpoint:
+First, import the `pool` and `Signal` schema and then extend the function which serves the `/signals` endpoint:
 
 ```python
 # main.py
 
 # Other imports ...
-from app.db import engine
+from app.db import pool
 from app.models import Signal
 
 from typing import List
@@ -234,6 +243,8 @@ from pydantic import BaseModel
 class SignalResponse(BaseModel):
     url: str
     records: List[Signal]
+
+# app and endpoint definitions are below...
 ```
 
 After adding the `defaultdict` import, the implementation of the `/signals` endpoint should look like this:
@@ -248,18 +259,25 @@ from collections import defaultdict
 
 @app.get(path="/signals", response_model=List[SignalResponse], tags=["Monitoring"])
 async def get_signals(limit: int = 60):
-    
+
     # A simple query to return every record belongs to the website we will monitor
     query = f"""
-    SELECT * FROM signals
+    SELECT url, http_status, available, received FROM signals
     WHERE url = 'https://questdb.io' ORDER BY received DESC LIMIT {limit};
     """
 
     signals = defaultdict(list)
 
-    with engine.connect() as conn: # connect to the database
+    with pool.connection() as conn: # connect to the database
         for result in conn.execute(query): # execute the SELECT query
-            signal = Signal(**dict(result)) # parse the results results returned by QuestDB
+            # parse the results results returned by QuestDB
+            signal = Signal(
+                url=result[0],
+                http_status=result[1],
+                available=result[2],
+                received=result[3],
+            )
+
             signals[signal.url].append(signal) # add every result per URL
 
     # Return the response which is validated against the `response_model` schema
@@ -272,13 +290,13 @@ async def get_signals(limit: int = 60):
 Let's recap on our code above, starting from the top:
 
 * we added `defaultdict` import (we'll explain that later)
-* extended the function decorator to use `response_model=List[SignalResponse]`, the response model we defined already 
-* changed the function signature to include a `limit` parameter and set its default value to `60` since we will monitor HTTP status every minute 
+* extended the function decorator to use `response_model=List[SignalResponse]`, the response model we defined already
+* changed the function signature to include a `limit` parameter and set its default value to `60` since we will monitor HTTP status every minute
 * select the records from the database and prepare a dictionary for the parsed `Signal`s.
 
 You may ask why to group the returned records per URL. Although we will monitor only one URL for the sake of simplicity, I challenge you to change the implementation later and explore QuestDB to handle the monitoring of multiple URLs.
 
-In the following lines, we are connecting to the database, executing the query, and populates the dictionary, which we will use in the last four lines to construct the `SignalResponse`. 
+In the following lines, we are connecting to the database, executing the query, and populates the dictionary, which we will use in the last four lines to construct the `SignalResponse`.
 Our version of `main.py` at this point looks like the following:
 
 ```python
@@ -290,7 +308,7 @@ from typing import List
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from app.db import engine
+from app.db import pool
 from app.models import Signal
 
 
@@ -299,7 +317,7 @@ class SignalResponse(BaseModel):
     url: str
     records: List[Signal]
 
-      
+
 app = FastAPI(
     title="Status Page",
     description="This service gives back the status of the configured URL.",
@@ -308,7 +326,7 @@ app = FastAPI(
 
 @app.get(path="/signals", response_model=List[SignalResponse], tags=["Monitoring"])
 async def get_signals(limit: int = 60):
-    
+
     # A simple query to return every record belongs to the website we will monitor
     query = f"""
     SELECT * FROM signals
@@ -317,9 +335,16 @@ async def get_signals(limit: int = 60):
 
     signals = defaultdict(list)
 
-    with engine.connect() as conn: # connect to the database
+    with pool.connection() as conn: # connect to the database
         for result in conn.execute(query): # execute the SELECT query
-            signal = Signal(**dict(result)) # parse the results results returned by QuestDB
+            # parse the results results returned by QuestDB
+            signal = Signal(
+                url=result[0],
+                http_status=result[1],
+                available=result[2],
+                received=result[3],
+            )
+
             signals[signal.url].append(signal) # add every result per URL
 
     # Return the response which is validated against the `response_model` schema
@@ -339,7 +364,7 @@ For scheduling the monitoring task, we will use Celery Beat, the built-in period
 Before we schedule any task, we need to configure Celery. In the `app` package, create a new `celery.py` which will contain the Celery and beat schedule configuration. Import `Celery` for creating tasks, and `crontab` for constructing Unix-like crontabs for our tasks.
 The task is the dotted path representation of the function which is executed by Celery (`app.tasks.monitor`) and sent to queues handled by Redis.
 
-The only thing left is to configure the beat schedule, which is a simple dictionary. 
+The only thing left is to configure the beat schedule, which is a simple dictionary.
 We give a name for the schedule, define the dotted path pointing to the task (function), and specify the schedule itself:
 
 ```python
@@ -372,7 +397,7 @@ celery_app.conf.beat_schedule = {
 
 And the last part: creating the monitoring task. In the previous section, we talked about the "monitoring task" multiple times, but we didn't see the concrete implementation.
 
-In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results as records in QuestDB. The monitoring task is a simple `HTTP HEAD` request and saving the response to the database. We see the implementation in pieces of the `tasks.py` referenced in celery as the dotted path before.
+In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results as records in QuestDB. The monitoring task is a simple `HTTP HEAD` request and saving the response to the database. We see the implementation in pieces of the `app/tasks.py` referenced in celery as the dotted path before.
 
 First, we start with imports:
 
@@ -384,13 +409,13 @@ from datetime import datetime
 import requests
 
 from app.celery import celery_app
-from app.db import engine
+from app.db import pool
 from app.models import Signal
 
 # ...
 ```
 
-We import `celery_app` which represents the Celery application, an `engine` to save the results in the database, and finally `Signal` to construct the record we will save. As the necessary imports are in place, we can define the `monitor` task.
+We import `celery_app` which represents the Celery application, a `pool` to save the results in the database, and finally `Signal` to construct the record we will save. As the necessary imports are in place, we can define the `monitor` task.
 
 ```python
 # tasks.py
@@ -408,7 +433,7 @@ def monitor():
             """
 
         # Open a connection and execute the query
-        with engine.connect() as conn:
+        with pool.connection() as conn:
             conn.execute(query)
 
         # Re-raise the exception to not hide issues
@@ -432,7 +457,7 @@ def monitor():
         received=datetime.now(),
         available=response.status_code >= 200 and response.status_code < 400,
     )
-    
+
     # ...
 ```
 
@@ -444,13 +469,59 @@ We don't do anything special here, though the following step is more interesting
 @celery_app.task
 def monitor():
     # ...
-    
+
     query = f"""
     INSERT INTO signals(received,url,http_status,available)
     VALUES(systimestamp(), '{signal.url}', {signal.http_status}, {signal.available});
     """
 
-    with engine.connect() as conn:
+    with pool.connection() as conn:
+        conn.execute(query)
+```
+
+The `tasks.py` should look like this now:
+
+```python
+# tasks.py
+
+from datetime import datetime
+
+import requests
+
+from app.celery import celery_app
+from app.db import pool
+from app.models import Signal
+
+@celery_app.task # register the function as a Celery task
+def monitor():
+    try:
+        response = requests.head("https://questdb.io")
+    except Exception as exc: # handle any exception which may occur due to connection errors
+        query = f"""
+            INSERT INTO signals(received,url,http_status,available)
+            VALUES(systimestamp(), 'https://questdb.io', -1, False);
+            """
+
+        # Open a connection and execute the query
+        with pool.connection() as conn:
+            conn.execute(query)
+
+        # Re-raise the exception to not hide issues
+        raise exc
+
+    signal = Signal(
+        url="https://questdb.io",
+        http_status=response.status_code,
+        received=datetime.now(),
+        available=response.status_code >= 200 and response.status_code < 400,
+    )
+
+    query = f"""
+    INSERT INTO signals(received,url,http_status,available)
+    VALUES(systimestamp(), '{signal.url}', {signal.http_status}, {signal.available});
+    """
+
+    with pool.connection() as conn:
         conn.execute(query)
 ```
 
@@ -458,7 +529,7 @@ Congratulations! You just arrived at the last part of the backend service implem
 
 The very last thing we need to address is to allow connections initiated by the frontend later on. As it will run on localhost:3000 and we don't use domain names, the port is different hence all requests will be rejected with errors related to [Cross-Origin Resource Sharing](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
 
-To address this issue, add the following middleware to the application which will allow us to connect at [http://localhost:3000](http://localhost:3000):
+For the sake of simplicity, we are going to allow all origins. This is highly not recommended in production, but for the tutorial, it will be sufficient for us.
 
 ```python
 # main.py
@@ -470,13 +541,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ...
+# rest of the code ...
 ```
 
 ## Implement the frontend
@@ -544,7 +615,7 @@ async function fetchSignals($axios, limit) {
   return signals
 }
 
-export default { 
+export default {
   data() {
     return {
       signals: []
@@ -596,7 +667,7 @@ The last part is to define a periodic call to the backend when the component is 
     <h2 class="text-lg font-thin">service uptime in the past 60 minutes</h2>
 
     <div class="h-8 mt-12 flex justify-center" v-if="signals.length > 0">
-      
+
       <!-- Iterate over the signals belongs to records -->
       <div class="w-1/4" v-for="(signal, s) in signals" :key="s">
         <div class="flex mb-1 text-sm">
@@ -604,9 +675,9 @@ The last part is to define a periodic call to the backend when the component is 
           <p class="flex-1 text-right font-thin">{{ uptime(signal.records) }}% uptime</p>
         </div>
         <div class="grid grid-flow-col auto-cols-max gap-x-1">
-          
+
           <!-- Draw a green or yellow bar depending on service availability -->
-          <div 
+          <div
             v-for="(signal, r) in signal.records"
             :key="r"
             :class="`w-1 bg-${signal.available ? 'green' : 'yellow'}-700`"
@@ -656,4 +727,3 @@ We've successfully built a pretty status page that can be publicly-visible to us
 Thank you for your attention!
 
 _The containerized source code is available at https://github.com/gabor-boros/questdb-statuspage._
-

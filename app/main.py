@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.db import engine
+from app.db import pool
 from app.models import Signal
 from app.settings import settings
 
@@ -29,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,14 +46,21 @@ async def get_signals(limit: int = 60):
     """
 
     query = f"""
-    SELECT * FROM signals WHERE url = '{settings.website_url}' ORDER BY received DESC LIMIT {limit};
+    SELECT url, http_status, available, received
+    FROM signals WHERE url = '{settings.website_url}' ORDER BY received DESC LIMIT {limit};
     """
 
     signals = defaultdict(list)
 
-    with engine.connect() as conn:
+    with pool.connection() as conn:
         for result in conn.execute(query):
-            signal = Signal(**dict(result))
+            signal = Signal(
+                url=result[0],
+                http_status=result[1],
+                available=result[2],
+                received=result[3],
+            )
+
             signals[signal.url].append(signal)
 
     return [
