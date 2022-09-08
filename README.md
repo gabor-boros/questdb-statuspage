@@ -29,12 +29,14 @@ You will need some experience in Python, JavaScript, and basic SQL knowledge. To
 
 There's a lot to learn, so let's jump right in!
 
+_The containerized source code is available at https://github.com/gabor-boros/questdb-statuspage._
+
 ### Prerequisites
 
 You will need to have the following installed on your machine:
 
 * Python 3.8
-* NodeJS 14+
+* NodeJS 14.x
 * Docker
 * Docker Compose
 
@@ -100,7 +102,7 @@ authors = ["Your name <your.email@example.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = "3.8"
+python = "^3.8"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -190,8 +192,6 @@ To be able to reuse the pool later on, create a new file in the `app` package wh
 
 from psycopg_pool import ConnectionPool
 
-from app.settings import settings
-
 pool = ConnectionPool(
     "postgresql://admin:quest@127.0.0.1:8812/qdb", # Use a the default credentials
     min_size=1, # Set pool size minimum to 1
@@ -200,7 +200,7 @@ pool = ConnectionPool(
 
 ```
 
-To set up a schema that represents the table in the database, create a `models.py` containing the schema definition:
+To set up a schema that represents the table in the database, create a `models.py` in the `app` package, containing the schema definition:
 
 ```python
 # models.py
@@ -243,6 +243,8 @@ from pydantic import BaseModel
 class SignalResponse(BaseModel):
     url: str
     records: List[Signal]
+
+# app and endpoint definitions are below...
 ```
 
 After adding the `defaultdict` import, the implementation of the `/signals` endpoint should look like this:
@@ -260,7 +262,7 @@ async def get_signals(limit: int = 60):
 
     # A simple query to return every record belongs to the website we will monitor
     query = f"""
-    SELECT * FROM signals
+    SELECT url, http_status, available, received FROM signals
     WHERE url = 'https://questdb.io' ORDER BY received DESC LIMIT {limit};
     """
 
@@ -395,7 +397,7 @@ celery_app.conf.beat_schedule = {
 
 And the last part: creating the monitoring task. In the previous section, we talked about the "monitoring task" multiple times, but we didn't see the concrete implementation.
 
-In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results as records in QuestDB. The monitoring task is a simple `HTTP HEAD` request and saving the response to the database. We see the implementation in pieces of the `tasks.py` referenced in celery as the dotted path before.
+In this final backend related section, you will implement the task which will check the availability of the desired website or service and saves the results as records in QuestDB. The monitoring task is a simple `HTTP HEAD` request and saving the response to the database. We see the implementation in pieces of the `app/tasks.py` referenced in celery as the dotted path before.
 
 First, we start with imports:
 
@@ -477,6 +479,52 @@ def monitor():
         conn.execute(query)
 ```
 
+The `tasks.py` should look like this now:
+
+```python
+# tasks.py
+
+from datetime import datetime
+
+import requests
+
+from app.celery import celery_app
+from app.db import pool
+from app.models import Signal
+
+@celery_app.task # register the function as a Celery task
+def monitor():
+    try:
+        response = requests.head("https://questdb.io")
+    except Exception as exc: # handle any exception which may occur due to connection errors
+        query = f"""
+            INSERT INTO signals(received,url,http_status,available)
+            VALUES(systimestamp(), 'https://questdb.io', -1, False);
+            """
+
+        # Open a connection and execute the query
+        with pool.connection() as conn:
+            conn.execute(query)
+
+        # Re-raise the exception to not hide issues
+        raise exc
+
+    signal = Signal(
+        url="https://questdb.io",
+        http_status=response.status_code,
+        received=datetime.now(),
+        available=response.status_code >= 200 and response.status_code < 400,
+    )
+
+    query = f"""
+    INSERT INTO signals(received,url,http_status,available)
+    VALUES(systimestamp(), '{signal.url}', {signal.http_status}, {signal.available});
+    """
+
+    with pool.connection() as conn:
+        conn.execute(query)
+```
+
 Congratulations! You just arrived at the last part of the backend service implementation. We did many things and built a service that can periodically check the website's status, save it in the database, and expose the results through an API.
 
 The very last thing we need to address is to allow connections initiated by the frontend later on. As it will run on localhost:3000 and we don't use domain names, the port is different hence all requests will be rejected with errors related to [Cross-Origin Resource Sharing](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
@@ -499,7 +547,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ...
+# rest of the code ...
 ```
 
 ## Implement the frontend

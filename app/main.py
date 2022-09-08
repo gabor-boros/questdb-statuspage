@@ -46,12 +46,8 @@ async def get_signals(limit: int = 60):
     """
 
     query = f"""
-    SELECT 
-        url,
-        http_status,
-        available,
-        received
-        FROM signals WHERE url = '{settings.website_url}' ORDER BY received DESC LIMIT {limit};
+    SELECT url, http_status, available, received
+    FROM signals WHERE url = '{settings.website_url}' ORDER BY received DESC LIMIT {limit};
     """
 
     signals = defaultdict(list)
